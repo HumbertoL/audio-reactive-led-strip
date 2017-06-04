@@ -217,18 +217,14 @@ def visualize_pond(y):
     y = np.copy(interpolate(y, config.N_PIXELS // 2))
     common_mode.update(y)
 
-    #p[0][0] = sum(p[1]) / float(len(p[1])) #first red = avg green
-    p[1][0] = sum(p[2]) / float(len(p[2])) - 32 #p[2][0]  #first green = avg blue
-    #p[0][0] = 255 - p[2][0] #inverse blue
+    #Take the average of the blue LEDs and set the first green to that value
+    p[1][0] = sum(p[2]) / float(len(p[2])) - 32 
     
-    p = np.roll(p, 1, axis=1) #we'll override blue later...
+    #Shift the green LEDs
+    p = np.roll(p, 1, axis=1)
 
     for counter in range(len(p[2])):
         p[2][counter] = min(255, (96 + (common_mode.value[counter] * 255 * 10)))
-
-            # Apply substantial blur to smooth the edges
-    #p[1, :] = gaussian_filter1d(p[1, :], sigma=4.0)
-    #p[2, :] = gaussian_filter1d(p[2, :], sigma=4.0)
         
     # Update the LED strip
     return np.concatenate((p[:, ::-1], p), axis=1)
@@ -244,17 +240,28 @@ def visualize_fire(y):
 
     p[1][0] = avg * 0.5
     
-    # roll by 2 to leave more red
+    # roll by 2 to leave more red than green
     p = np.roll(p, 2, axis=1) 
 
     for counter in range(len(p[0])):
-        #p[2][counter] = max(y[counter] * 255, 128)
-        #p[1][counter] = (y[counter] * 255) + 96
         p[0][counter] = min(255, (128 + (common_mode.value[counter] * 255 * 10)))
         
     # Apply substantial blur to smooth the edges
     p[0, :] = gaussian_filter1d(p[0, :], sigma=4.0)
     p[1, :] = gaussian_filter1d(p[1, :], sigma=4.0)
+
+    # Update the LED strip
+    return np.concatenate((p[:, ::-1], p), axis=1)
+
+def visualize_trees(y):
+    """green effect similar to spectrum"""
+    global p
+
+    y = np.copy(interpolate(y, config.N_PIXELS // 2))
+    common_mode.update(y)
+
+    for counter in range(len(p[1])):
+        p[1][counter] = min(255, (96 + (common_mode.value[counter] * 255 * 12)))
 
     # Update the LED strip
     return np.concatenate((p[:, ::-1], p), axis=1)
@@ -271,6 +278,7 @@ def visualize_rainbow(y):
     p2 = np.copy(p)
 
     for counter in range(len(p2[0])):
+        #add a little gain to make rainbow react to sound
         gain = (common_mode.value[counter] * 255 * 10)
         p2[0][counter] += gain
         p2[1][counter] += gain 
@@ -448,10 +456,11 @@ if __name__ == '__main__':
         energy_label = pg.LabelItem('Energy')
         scroll_label = pg.LabelItem('Scroll')
         spectrum_label = pg.LabelItem('Spectrum')        
-        reverse_energy_label = pg.LabelItem('Reverse Energy')
+        reverse_energy_label = pg.LabelItem('Reverse Energy')        
+        rainbow_label = pg.LabelItem('Rainbow')
         pond_label = pg.LabelItem('Pond Ripples')
         fire_label = pg.LabelItem('Fire')
-        rainbow_label = pg.LabelItem('Rainbow')
+        trees_label = pg.LabelItem('Trees')
 
         def reset_labels():
             energy_label.setText('Energy', color=inactive_color)
@@ -460,7 +469,8 @@ if __name__ == '__main__':
             pond_label.setText('Pond Ripples', color=inactive_color)
             reverse_energy_label.setText('Reverse Energy', color=inactive_color)
             fire_label.setText('Fire', color=inactive_color)
-            rainbow_label.setText('Rainbow', color=inactive_color)
+            rainbow_label.setText('Rainbow', color=inactive_color)            
+            trees_label.setText('Trees', color=inactive_color)
 
         def energy_click(x):
             global visualization_effect
@@ -504,14 +514,23 @@ if __name__ == '__main__':
             reset_labels()
             setup_rainbow()
             rainbow_label.setText('Rainbow', color=active_color)
+        def trees_click(x):
+            global visualization_effect
+            global p
+            p *= 0
+            visualization_effect = visualize_trees            
+            reset_labels()
+            trees_label.setText('Trees', color=active_color)
         # Create effect "buttons" (labels with click event)
         energy_label.mousePressEvent = energy_click
         scroll_label.mousePressEvent = scroll_click
         spectrum_label.mousePressEvent = spectrum_click        
         reverse_energy_label.mousePressEvent = reverse_energy_click
+        rainbow_label.mousePressEvent = rainbow_click
         pond_label.mousePressEvent = pond_click
         fire_label.mousePressEvent = fire_click
-        rainbow_label.mousePressEvent = rainbow_click
+        trees_label.mousePressEvent = trees_click
+
 
         #default to energy
         energy_click(0)
@@ -528,12 +547,14 @@ if __name__ == '__main__':
         layout.addItem(spectrum_label)
 
         layout.nextRow()        
+        layout.addItem(rainbow_label)        
         layout.addItem(reverse_energy_label)
-        layout.addItem(pond_label)
-        layout.addItem(fire_label)
 
         layout.nextRow() 
-        layout.addItem(rainbow_label)
+        layout.addItem(fire_label)
+        layout.addItem(pond_label)
+        layout.addItem(trees_label)
+
 
     # Initialize LEDs
     led.update()
