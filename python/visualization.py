@@ -176,6 +176,134 @@ def visualize_spectrum(y):
     return output
 
 
+
+def visualize_reverse_energy(y):
+    """Effect that expands from the ends with increasing sound energy"""
+    global p
+    y = np.copy(y)
+    gain.update(y)
+    y /= gain.value
+    # Scale by the width of the LED strip
+    y *= float((config.N_PIXELS // 2) - 1)
+    # Map color channels according to energy in the different freq bands
+    scale = 0.9
+    r = int(np.mean(y[:len(y) // 3]**scale))
+    g = int(np.mean(y[len(y) // 3: 2 * len(y) // 3]**scale))
+    b = int(np.mean(y[2 * len(y) // 3:]**scale))
+    # Assign color to different frequency regions
+    p[0, :r] = 255.0
+    p[0, r:] = 0.0
+    p[1, :g] = 255.0
+    p[1, g:] = 0.0
+    p[2, :b] = 255.0
+    p[2, b:] = 0.0
+    p_filt.update(p)
+    p = np.round(p_filt.value)
+    # Apply substantial blur to smooth the edges
+    p[0, :] = gaussian_filter1d(p[0, :], sigma=4.0)
+    p[1, :] = gaussian_filter1d(p[1, :], sigma=4.0)
+    p[2, :] = gaussian_filter1d(p[2, :], sigma=4.0)
+
+    #reverse here
+    p = np.flip(p, 1)
+
+    # Set the new pixel value
+    return np.concatenate((p[:, ::-1], p), axis=1)
+
+def visualize_pond(y):
+    """Blue-green effect similar to spectrum"""
+    global p
+
+    y = np.copy(interpolate(y, config.N_PIXELS // 2))
+    common_mode.update(y)
+
+    #p[0][0] = sum(p[1]) / float(len(p[1])) #first red = avg green
+    p[1][0] = sum(p[2]) / float(len(p[2])) - 32 #p[2][0]  #first green = avg blue
+    #p[0][0] = 255 - p[2][0] #inverse blue
+    
+    p = np.roll(p, 1, axis=1) #we'll override blue later...
+
+    for counter in range(len(p[2])):
+        p[2][counter] = min(255, (96 + (common_mode.value[counter] * 255 * 10)))
+
+            # Apply substantial blur to smooth the edges
+    #p[1, :] = gaussian_filter1d(p[1, :], sigma=4.0)
+    #p[2, :] = gaussian_filter1d(p[2, :], sigma=4.0)
+        
+    # Update the LED strip
+    return np.concatenate((p[:, ::-1], p), axis=1)
+
+def visualize_fire(y):
+    """red-yellow effect similar to spectrum"""
+    global p
+
+    y = np.copy(interpolate(y, config.N_PIXELS // 2))
+    common_mode.update(y)
+
+    avg = sum(p[0]) / float(len(p[0]))
+
+    p[1][0] = avg * 0.5
+    
+    # roll by 2 to leave more red
+    p = np.roll(p, 2, axis=1) 
+
+    for counter in range(len(p[0])):
+        #p[2][counter] = max(y[counter] * 255, 128)
+        #p[1][counter] = (y[counter] * 255) + 96
+        p[0][counter] = min(255, (128 + (common_mode.value[counter] * 255 * 10)))
+        
+    # Apply substantial blur to smooth the edges
+    p[0, :] = gaussian_filter1d(p[0, :], sigma=4.0)
+    p[1, :] = gaussian_filter1d(p[1, :], sigma=4.0)
+
+    # Update the LED strip
+    return np.concatenate((p[:, ::-1], p), axis=1)
+
+def visualize_rainbow(y):
+    global p
+    y = np.copy(interpolate(y, config.N_PIXELS // 2))
+    common_mode.update(y)
+
+    #shift colors
+    p = np.roll(p, 2, axis=1) 
+
+    #create temp copy
+    p2 = np.copy(p)
+
+    for counter in range(len(p2[0])):
+        gain = (common_mode.value[counter] * 255 * 10)
+        p2[0][counter] += gain
+        p2[1][counter] += gain 
+        p2[2][counter] += gain 
+
+    # Update the LED strip
+    return np.concatenate((p2[:, ::-1], p2), axis=1)
+
+def setup_rainbow():
+    """Show all the colors of the rainbow, mapped to the strip"""
+    global p
+
+    for i in range(len(p[0])):
+        colors =  wheel(min(i * 256 / len(p[0]) , 255))
+        p[0][i] = colors[0]
+        p[1][i] = colors[1]
+        p[2][i] = colors[2]
+
+
+# Input a value 0 to 255 to get a color value.
+# The colours are a transition r - g - b - back to r.
+def wheel(x):
+    WheelPos = 255-x
+
+    if(WheelPos < 85):
+        return [255 - WheelPos * 3, 0, WheelPos * 3]
+    if(WheelPos < 170):
+        WheelPos -= 85
+        return [0, WheelPos * 3, 255 - WheelPos * 3]
+
+    WheelPos -= 170;
+    return [WheelPos * 3, 255 - WheelPos * 3, 0]
+
 fft_plot_filter = dsp.ExpFilter(np.tile(1e-1, config.N_FFT_BINS),
                          alpha_decay=0.5, alpha_rise=0.99)
 mel_gain = dsp.ExpFilter(np.tile(1e-1, config.N_FFT_BINS),
@@ -315,41 +443,98 @@ if __name__ == '__main__':
         # Effect selection
         active_color = '#16dbeb'
         inactive_color = '#FFFFFF'
+
+
+        energy_label = pg.LabelItem('Energy')
+        scroll_label = pg.LabelItem('Scroll')
+        spectrum_label = pg.LabelItem('Spectrum')        
+        reverse_energy_label = pg.LabelItem('Reverse Energy')
+        pond_label = pg.LabelItem('Pond Ripples')
+        fire_label = pg.LabelItem('Fire')
+        rainbow_label = pg.LabelItem('Rainbow')
+
+        def reset_labels():
+            energy_label.setText('Energy', color=inactive_color)
+            scroll_label.setText('Scroll', color=inactive_color)
+            spectrum_label.setText('Spectrum', color=inactive_color)
+            pond_label.setText('Pond Ripples', color=inactive_color)
+            reverse_energy_label.setText('Reverse Energy', color=inactive_color)
+            fire_label.setText('Fire', color=inactive_color)
+            rainbow_label.setText('Rainbow', color=inactive_color)
+
         def energy_click(x):
             global visualization_effect
             visualization_effect = visualize_energy
+            reset_labels()
             energy_label.setText('Energy', color=active_color)
-            scroll_label.setText('Scroll', color=inactive_color)
-            spectrum_label.setText('Spectrum', color=inactive_color)
         def scroll_click(x):
             global visualization_effect
             visualization_effect = visualize_scroll
-            energy_label.setText('Energy', color=inactive_color)
+            reset_labels()
             scroll_label.setText('Scroll', color=active_color)
-            spectrum_label.setText('Spectrum', color=inactive_color)
         def spectrum_click(x):
             global visualization_effect
             visualization_effect = visualize_spectrum
-            energy_label.setText('Energy', color=inactive_color)
-            scroll_label.setText('Scroll', color=inactive_color)
-            spectrum_label.setText('Spectrum', color=active_color)
+            reset_labels()
+            spectrum_label.setText('Spectrum', color=active_color)            
+        def reverse_energy_click(x):
+            global visualization_effect
+            visualization_effect = visualize_reverse_energy
+            reset_labels()
+            reverse_energy_label.setText('Reverse Energy', color=active_color)
+        def pond_click(x):
+            global visualization_effect
+            global p
+            p *= 0
+            visualization_effect = visualize_pond
+            reset_labels()
+            pond_label.setText('Pond Ripples', color=active_color)
+        def fire_click(x):
+            global visualization_effect
+            global p
+            p *= 0
+            visualization_effect = visualize_fire
+            reset_labels()
+            fire_label.setText('Fire', color=active_color)
+        def rainbow_click(x):
+            global visualization_effect
+            global p
+            p *= 0
+            visualization_effect = visualize_rainbow
+            reset_labels()
+            setup_rainbow()
+            rainbow_label.setText('Rainbow', color=active_color)
         # Create effect "buttons" (labels with click event)
-        energy_label = pg.LabelItem('Energy')
-        scroll_label = pg.LabelItem('Scroll')
-        spectrum_label = pg.LabelItem('Spectrum')
         energy_label.mousePressEvent = energy_click
         scroll_label.mousePressEvent = scroll_click
-        spectrum_label.mousePressEvent = spectrum_click
+        spectrum_label.mousePressEvent = spectrum_click        
+        reverse_energy_label.mousePressEvent = reverse_energy_click
+        pond_label.mousePressEvent = pond_click
+        fire_label.mousePressEvent = fire_click
+        rainbow_label.mousePressEvent = rainbow_click
+
+        #default to energy
         energy_click(0)
+
         # Layout
         layout.nextRow()
         layout.addItem(freq_label, colspan=3)
         layout.nextRow()
         layout.addItem(freq_slider, colspan=3)
+
         layout.nextRow()
         layout.addItem(energy_label)
         layout.addItem(scroll_label)
         layout.addItem(spectrum_label)
+
+        layout.nextRow()        
+        layout.addItem(reverse_energy_label)
+        layout.addItem(pond_label)
+        layout.addItem(fire_label)
+
+        layout.nextRow() 
+        layout.addItem(rainbow_label)
+
     # Initialize LEDs
     led.update()
     # Start listening to live audio stream
